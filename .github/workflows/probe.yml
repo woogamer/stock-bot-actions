@@ -1,0 +1,11 @@
+name: probe
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          curl -s https://ipinfo.io/country; echo
+          for u in https://openapivts.koreainvestment.com:29443/oauth2/tokenP https://openapi.koreainvestment.com:9443/oauth2/tokenP; do
+            curl -s -o /dev/null -w "$u %{http_code} connect=%{time_connect}s total=%{time_total}s\n" -X POST "$u" -H "Content-Type: application/json" -d '{}' --max-time 60 || echo "$u FAILED"
+          done
