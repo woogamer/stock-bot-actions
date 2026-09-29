@@ -10,6 +10,7 @@ GitHub Actions 로 하루 한 번 돌아가는 한국투자증권 모의투자 �
 
 import os
 import sys
+import time
 
 import requests
 
@@ -19,6 +20,7 @@ APP_KEY = os.environ.get("KIS_APP_KEY", "")
 APP_SECRET = os.environ.get("KIS_APP_SECRET", "")
 ACCOUNT_NO = os.environ.get("KIS_ACCOUNT_NO", "").replace("-", "")
 ORDER_MODE = os.environ.get("ORDER_MODE", "off").lower() == "on"
+TIMEOUT = 60  # GitHub 컴퓨터는 미국에 있어서 응답이 10초 넘게 걸리기도 합니다
 
 # ------------------------------------------------------------------ #
 #  전략 (여기만 고치면 됩니다)
@@ -46,12 +48,25 @@ def decide(ticker, price, ma20, holding):
 #  한국투자증권 API (건드리지 않아도 됩니다)
 # ------------------------------------------------------------------ #
 
-def get_token():
-    r = requests.post(f"{BASE_URL}/oauth2/tokenP", timeout=15, json={
-        "grant_type": "client_credentials", "appkey": APP_KEY, "appsecret": APP_SECRET,
-    })
+def call(method, path, **kwargs):
+    """느리거나 일시적으로 실패하면 3번까지 다시 시도합니다."""
+    for attempt in range(3):
+        try:
+            r = requests.request(method, BASE_URL + path, timeout=TIMEOUT, **kwargs)
+            if r.status_code < 500:
+                r.raise_for_status()
+                return r.json()
+        except (requests.Timeout, requests.ConnectionError):
+            if attempt == 2:
+                raise
+        time.sleep(3)
     r.raise_for_status()
-    return r.json()["access_token"]
+
+
+def get_token():
+    return call("POST", "/oauth2/tokenP", json={
+        "grant_type": "client_credentials", "appkey": APP_KEY, "appsecret": APP_SECRET,
+    })["access_token"]
 
 
 def headers(token, tr_id):
@@ -60,32 +75,28 @@ def headers(token, tr_id):
 
 
 def get_price(token, ticker):
-    r = requests.get(f"{BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-price", timeout=15,
-                     headers=headers(token, "FHKST01010100"),
+    data = call("GET", "/uapi/domestic-stock/v1/quotations/inquire-price",
+                headers=headers(token, "FHKST01010100"),
                      params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ticker})
-    r.raise_for_status()
-    return int(r.json()["output"]["stck_prpr"])
+    return int(data["output"]["stck_prpr"])
 
 
 def get_ma20(token, ticker):
-    r = requests.get(f"{BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-daily-price", timeout=15,
-                     headers=headers(token, "FHKST01010400"),
+    data = call("GET", "/uapi/domestic-stock/v1/quotations/inquire-daily-price",
+                headers=headers(token, "FHKST01010400"),
                      params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ticker,
                              "FID_PERIOD_DIV_CODE": "D", "FID_ORG_ADJ_PRC": "0"})
-    r.raise_for_status()
-    closes = [int(d["stck_clpr"]) for d in r.json().get("output", [])[:20] if d.get("stck_clpr")]
+    closes = [int(d["stck_clpr"]) for d in data.get("output", [])[:20] if d.get("stck_clpr")]
     return sum(closes) / len(closes) if closes else 0
 
 
 def get_holdings(token):
-    r = requests.get(f"{BASE_URL}/uapi/domestic-stock/v1/trading/inquire-balance", timeout=15,
-                     headers=headers(token, "VTTC8434R"),
+    data = call("GET", "/uapi/domestic-stock/v1/trading/inquire-balance",
+                headers=headers(token, "VTTC8434R"),
                      params={"CANO": ACCOUNT_NO[:8], "ACNT_PRDT_CD": ACCOUNT_NO[8:],
                              "AFHR_FLPR_YN": "N", "OFL_YN": "", "INQR_DVSN": "02", "UNPR_DVSN": "01",
                              "FUND_STTL_ICLD_YN": "N", "FNCG_AMT_AUTO_RDPT_YN": "N", "PRCS_DVSN": "01",
                              "CTX_AREA_FK100": "", "CTX_AREA_NK100": ""})
-    r.raise_for_status()
-    data = r.json()
     holdings = {}
     for item in data.get("output1", []):
         qty = int(item.get("hldg_qty", 0))
@@ -97,7 +108,8 @@ def get_holdings(token):
 
 def order(token, ticker, qty, side):
     tr_id = "VTTC0802U" if side == "buy" else "VTTC0801U"
-    r = requests.post(f"{BASE_URL}/uapi/domestic-stock/v1/trading/order-cash", timeout=15,
+    # 주문은 중복 위험이 있어 재시도하지 않습니다
+    r = requests.post(f"{BASE_URL}/uapi/domestic-stock/v1/trading/order-cash", timeout=TIMEOUT,
                       headers=headers(token, tr_id),
                       json={"CANO": ACCOUNT_NO[:8], "ACNT_PRDT_CD": ACCOUNT_NO[8:], "PDNO": ticker,
                             "ORD_DVSN": "01", "ORD_QTY": str(qty), "ORD_UNPR": "0"})
