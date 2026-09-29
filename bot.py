@@ -8,6 +8,7 @@ GitHub Actions 로 하루 한 번 돌아가는 한국투자증권 모의투자 �
 - 전략을 바꾸고 싶으면 아래 "전략" 부분만 고치면 됩니다. (Claude 에게 부탁해도 됩니다)
 """
 
+import json
 import os
 import sys
 import time
@@ -20,6 +21,9 @@ APP_KEY = os.environ.get("KIS_APP_KEY", "")
 APP_SECRET = os.environ.get("KIS_APP_SECRET", "")
 ACCOUNT_NO = os.environ.get("KIS_ACCOUNT_NO", "").replace("-", "")
 ORDER_MODE = os.environ.get("ORDER_MODE", "off").lower() == "on"
+KAKAO_REST_KEY = os.environ.get("KAKAO_REST_KEY", "")
+KAKAO_CLIENT_SECRET = os.environ.get("KAKAO_CLIENT_SECRET", "")
+KAKAO_REFRESH_TOKEN = os.environ.get("KAKAO_REFRESH_TOKEN", "")
 TIMEOUT = 60  # GitHub 컴퓨터는 미국에 있어서 응답이 10초 넘게 걸리기도 합니다
 
 # ------------------------------------------------------------------ #
@@ -120,6 +124,33 @@ def order(token, ticker, qty, side):
 
 
 # ------------------------------------------------------------------ #
+#  카카오톡 "나에게 보내기" 알림 (설정 안 하면 건너뜁니다)
+# ------------------------------------------------------------------ #
+
+def kakao_send(text):
+    if not (KAKAO_REST_KEY and KAKAO_REFRESH_TOKEN):
+        return
+    try:
+        r = requests.post("https://kauth.kakao.com/oauth/token", timeout=15, data={
+            "grant_type": "refresh_token", "client_id": KAKAO_REST_KEY,
+            "client_secret": KAKAO_CLIENT_SECRET, "refresh_token": KAKAO_REFRESH_TOKEN,
+        })
+        r.raise_for_status()
+        token = r.json()
+        if "refresh_token" in token:
+            print("⚠️ 카카오 로그인 기간이 한 달 이하로 남았습니다. 새 KAKAO_REFRESH_TOKEN 으로 교체가 필요합니다.")
+        template = {"object_type": "text", "text": text[:990],
+                    "link": {"web_url": "https://github.com", "mobile_web_url": "https://github.com"}}
+        r = requests.post("https://kapi.kakao.com/v2/api/talk/memo/default/send", timeout=15,
+                          headers={"Authorization": f"Bearer {token['access_token']}"},
+                          data={"template_object": json.dumps(template, ensure_ascii=False)})
+        r.raise_for_status()
+        print("카카오톡 알림 보냄")
+    except Exception as e:  # 알림 실패가 매매를 막지 않도록
+        print(f"⚠️ 카카오톡 알림 실패: {e}")
+
+
+# ------------------------------------------------------------------ #
 #  실행
 # ------------------------------------------------------------------ #
 
@@ -128,7 +159,9 @@ def main():
         print("❌ Secrets 가 비어 있습니다. KIS_APP_KEY, KIS_APP_SECRET, KIS_ACCOUNT_NO 를 등록하세요.")
         sys.exit(1)
 
-    print(f"모드: {'주문 실행 (모의투자)' if ORDER_MODE else '조회만 (주문 안 함)'}")
+    mode = "주문 실행 (모의투자)" if ORDER_MODE else "조회만 (주문 안 함)"
+    print(f"모드: {mode}")
+    report = []
     token = get_token()
     holdings, cash = get_holdings(token)
     print(f"예수금: {cash:,}원 / 보유 종목: {len(holdings)}개\n")
@@ -141,13 +174,19 @@ def main():
         line = f"{name}({ticker}) 현재가 {price:,}원 · 20일 평균 {ma20:,.0f}원"
         if not action:
             print(f"  {line} → 대기")
+            report.append(f"· {name} 대기 ({price:,}원)")
             continue
         qty = 1 if action == "buy" else holding["수량"]
         label = "매수" if action == "buy" else "매도"
         if ORDER_MODE:
-            print(f"  {line} → {label} {qty}주 주문: {order(token, ticker, qty, action)} ({reason})")
+            result = order(token, ticker, qty, action)
+            print(f"  {line} → {label} {qty}주 주문: {result} ({reason})")
+            report.append(f"· {name} {label} {qty}주 ({price:,}원) — {result}\n  이유: {reason}")
         else:
             print(f"  {line} → [조회 모드] {label} {qty}주 했을 것 ({reason})")
+            report.append(f"· {name} {label} {qty}주 했을 것 ({price:,}원)\n  이유: {reason}")
+
+    kakao_send(f"[주식 봇] {mode}\n예수금 {cash:,}원 · 보유 {len(holdings)}종목\n\n" + "\n".join(report))
 
 
 if __name__ == "__main__":
