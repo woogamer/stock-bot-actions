@@ -3,7 +3,15 @@
 서버 없이, GitHub 가 **평일 아침 9시 10분에 한 번** 봇을 실행해주는 한국투자증권 **모의투자** 봇입니다.
 노트북을 꺼도 돌아가고, 비용은 0원입니다.
 
-## 세팅 (10분)
+## 가장 쉬운 방법
+
+노트북의 Claude(데스크톱 앱 Code 탭 또는 Claude Code)에 이렇게 보내면 아래 세팅을 Claude 가 대신 합니다.
+
+```
+https://guide.woogamer.win/claude.md 를 읽고 그대로 나를 도와서 주식 봇 세팅을 끝까지 해줘.
+```
+
+## 직접 세팅 (10분)
 
 1. 이 페이지 오른쪽 위 **Use this template** → **Create a new repository** → 이름 입력, **Private** 선택 → Create
 2. 만든 저장소에서 **Settings** → **Secrets and variables** → **Actions** → **New repository secret** 으로 3개 등록
