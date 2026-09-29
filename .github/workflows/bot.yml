@@ -1,0 +1,26 @@
+name: 주식 봇
+
+on:
+  schedule:
+    # 평일 09:10 (한국 시간). GitHub 예약은 영국 시간(UTC) 기준이라 00:10 으로 적습니다.
+    # 사람이 몰리면 몇 분 늦게 실행될 수 있습니다.
+    - cron: "10 0 * * 1-5"
+  workflow_dispatch:   # Actions 탭에서 "Run workflow" 버튼으로 바로 실행
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - run: python bot.py
+        env:
+          TZ: Asia/Seoul
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+          KIS_ACCOUNT_NO: ${{ secrets.KIS_ACCOUNT_NO }}
+          ORDER_MODE: ${{ vars.ORDER_MODE }}
