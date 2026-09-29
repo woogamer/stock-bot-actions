@@ -129,7 +129,7 @@ def main():
         sys.exit(1)
 
     print(f"모드: {'주문 실행 (모의투자)' if ORDER_MODE else '조회만 (주문 안 함)'}")
-    token = get_token()
+    token = os.environ.get("KIS_ACCESS_TOKEN") or get_token()  # TMP: 대회 봇 토큰 재사용 시험
     holdings, cash = get_holdings(token)
     print(f"예수금: {cash:,}원 / 보유 종목: {len(holdings)}개\n")
 
