@@ -54,6 +54,8 @@ def call(method, path, **kwargs):
         try:
             r = requests.request(method, BASE_URL + path, timeout=TIMEOUT, **kwargs)
             if r.status_code < 500:
+                if r.status_code >= 400:
+                    print(f"❌ 증권사 응답 {r.status_code}: {r.text[:300]}")
                 r.raise_for_status()
                 return r.json()
         except (requests.Timeout, requests.ConnectionError):
